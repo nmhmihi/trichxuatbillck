@@ -10,18 +10,35 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <script>
-      // Defensive protection against extensions trying to set window.fetch when read-only
-      try {
-        let currentFetch = window.fetch.bind(window);
-        Object.defineProperty(window, 'fetch', {
-          get: function() { return currentFetch; },
-          set: function(fn) { currentFetch = fn; },
-          configurable: true,
-          enumerable: true
-        });
-      } catch (e) {
-        // Continue if sealed
-      }
+      (function() {
+        // 1. Ngăn chặn lỗi uncaught khi extension hoặc script ngoài cố gắng gán window.fetch
+        window.addEventListener('error', function(event) {
+          if (event && event.message && event.message.includes('fetch of #<Window>')) {
+            if (event.preventDefault) event.preventDefault();
+            return true;
+          }
+        }, true);
+
+        // 2. Cung cấp setter cho window.fetch để các tiện ích mở rộng có thể gán mà không bị lỗi read-only getter
+        try {
+          var _nativeFetch = window.fetch ? window.fetch.bind(window) : undefined;
+          Object.defineProperty(window, 'fetch', {
+            get: function() { return _nativeFetch; },
+            set: function(newFn) { _nativeFetch = newFn; },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          try {
+            Object.defineProperty(window, 'fetch', {
+              value: window.fetch,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          } catch (e2) {}
+        }
+      })();
     </script>
   </head>
   <body>

@@ -97,6 +97,8 @@ export default function App() {
       setResultText('');
       setErrorMessage(null);
       setIsCopied(false);
+      // Tự động kích hoạt trích xuất ngay khi chọn ảnh
+      handleExtract(optimizedUrl);
     };
     reader.readAsDataURL(file);
   };
@@ -119,8 +121,9 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleExtract = async () => {
-    if (!imagePreview) {
+  const handleExtract = async (imageOverride?: string) => {
+    const targetImage = imageOverride || imagePreview;
+    if (!targetImage) {
       setErrorMessage('Vui lòng chọn ảnh bill chuyển khoản trước.');
       return;
     }
@@ -131,59 +134,76 @@ export default function App() {
 
     try {
       let mimeType = 'image/jpeg';
-      if (imagePreview.startsWith('data:image/png')) mimeType = 'image/png';
-      else if (imagePreview.startsWith('data:image/webp')) mimeType = 'image/webp';
-      else if (imagePreview.startsWith('data:image/svg+xml')) mimeType = 'image/svg+xml';
+      if (targetImage.startsWith('data:image/png')) mimeType = 'image/png';
+      else if (targetImage.startsWith('data:image/webp')) mimeType = 'image/webp';
+      else if (targetImage.startsWith('data:image/svg+xml')) mimeType = 'image/svg+xml';
 
-      const res = await window.fetch('/api/extract-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: imagePreview,
-          mimeType,
-        }),
-      });
+      // Hàm gửi yêu cầu kèm cơ chế tự động thử lại (Auto-Retry)
+      const fetchWithAutoRetry = async (retriesLeft = 2): Promise<any> => {
+        try {
+          const res = await window.fetch('/api/extract-bill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64: targetImage,
+              mimeType,
+            }),
+          });
 
-      const responseText = await res.text();
-      let json: any = null;
+          const responseText = await res.text();
+          let json: any = null;
 
-      try {
-        json = JSON.parse(responseText);
-      } catch {
-        // Máy chủ hoặc proxy trả về trang HTML lỗi (như khi đang khởi động lại hoặc timeout)
-        if (
-          responseText.includes('The page') ||
-          responseText.includes('<!DOCTYPE') ||
-          res.status >= 500
-        ) {
-          throw new Error('Máy chủ đang khởi động lại hoặc gián đoạn kết nối tạm thời. Vui lòng nhấn "Thử lại".');
+          try {
+            json = JSON.parse(responseText);
+          } catch {
+            // Nếu phản hồi HTML khi máy chủ đang khởi động lại, tự động thử lại sau 1.5s
+            if (retriesLeft > 0) {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              return fetchWithAutoRetry(retriesLeft - 1);
+            }
+            throw new Error('Máy chủ đang khởi động lại hoặc gián đoạn kết nối tạm thời. Vui lòng nhấn "Thử lại".');
+          }
+
+          if (!res.ok || !json.success) {
+            // Nếu lỗi 503 hoặc quá tải tạm thời, tự động thử lại sau 1.5s
+            if ((res.status === 503 || res.status === 502 || res.status === 504) && retriesLeft > 0) {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              return fetchWithAutoRetry(retriesLeft - 1);
+            }
+
+            let msg = json?.error || 'Có lỗi xảy ra khi xử lý ảnh.';
+            if (typeof msg === 'object') {
+              msg = msg.message || JSON.stringify(msg);
+            }
+            throw new Error(msg);
+          }
+
+          return json;
+        } catch (fetchErr: any) {
+          if (retriesLeft > 0 && (fetchErr?.message?.includes('fetch') || fetchErr?.message?.includes('Network'))) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            return fetchWithAutoRetry(retriesLeft - 1);
+          }
+          throw fetchErr;
         }
-        throw new Error('Phản hồi từ máy chủ không hợp lệ. Vui lòng thử lại.');
-      }
+      };
 
-      if (!res.ok || !json.success) {
-        let msg = json?.error || 'Có lỗi xảy ra khi xử lý ảnh.';
-        if (typeof msg === 'object') {
-          msg = msg.message || JSON.stringify(msg);
-        }
-        throw new Error(msg);
-      }
-
-      const data: ExtractedBillData = json.data;
+      const json = await fetchWithAutoRetry(2);
+      const data: ExtractedBillData = json?.data || {};
 
       // 3 thông tin chính:
       // Dòng 1: Tên người nhận
       // Dòng 2: Số tài khoản nhận
       // Dòng 3: Ngân hàng nhận
       const lines = [
-        data?.recipientName?.trim() || '',
-        data?.recipientAccountNumber?.trim() || '',
-        data?.recipientBank?.trim() || '',
+        String(data?.recipientName || '').trim(),
+        String(data?.recipientAccountNumber || '').trim(),
+        String(data?.recipientBank || '').trim(),
       ].filter(Boolean);
 
       const formatted = lines.join('\n');
       if (!formatted) {
-        setErrorMessage('Không tìm thấy thông tin chuyển khoản trên ảnh này. Vui lòng kiểm tra lại ảnh bill.');
+        setErrorMessage('AI không nhận diện được thông tin người nhận trên ảnh này. Bạn có thể chụp gần hơn hoặc kiểm tra lại ảnh bill.');
         return;
       }
       setResultText(formatted);
@@ -200,9 +220,30 @@ export default function App() {
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!resultText) return;
-    navigator.clipboard.writeText(resultText);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(resultText);
+      } else {
+        throw new Error('Clipboard API not available');
+      }
+    } catch {
+      // Fallback cho môi trường iframe
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = resultText;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch (err) {
+        console.warn('Không thể sao chép tự động:', err);
+      }
+    }
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
@@ -210,11 +251,23 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#14231a] text-[#e8f5ee] flex flex-col items-center justify-start p-4 sm:p-8 font-sans antialiased selection:bg-[#3d7754] selection:text-white">
       <div className="w-full max-w-lg my-auto space-y-5 py-4">
-        {/* Header - Tiêu đề đơn giản không dòng phụ */}
-        <div className="text-center">
+        {/* Header với trạng thái AI rõ ràng */}
+        <div className="text-center space-y-2">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#e8f5ee]">
             Trích Xuất Bill Ngân Hàng
           </h1>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1b3124] border border-[#2e523d] text-xs text-[#87c5a0] font-medium">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isLoading ? 'bg-[#facc15] animate-ping' : 'bg-[#4ade80]'
+              }`}
+            />
+            <span>
+              {isLoading
+                ? 'Gemini AI đang phân tích ảnh...'
+                : 'Trí tuệ nhân tạo Gemini AI 3.1 Flash sẵn sàng'}
+            </span>
+          </div>
         </div>
 
         {/* Khung tải ảnh màu xanh đậm matcha */}
@@ -267,7 +320,9 @@ export default function App() {
                     <p className="text-sm font-medium text-[#e3f2ea] truncate" title={fileName || ''}>
                       {fileName || 'Ảnh biên lai'}
                     </p>
-                    <p className="text-xs text-[#6ec28d] font-medium">Đã sẵn sàng trích xuất</p>
+                    <p className="text-xs text-[#6ec28d] font-medium">
+                      {isLoading ? 'Đang tự động trích xuất...' : resultText ? 'Đã trích xuất thành công' : 'Đã sẵn sàng trích xuất'}
+                    </p>
                   </div>
                 </div>
 
@@ -290,10 +345,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Nút Trích Xuất */}
+              {/* Nút Trích Xuất Lại (khi cần bấm lại) */}
               <button
                 type="button"
-                onClick={handleExtract}
+                onClick={() => handleExtract()}
                 disabled={isLoading}
                 className={`w-full py-3 px-4 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
                   isLoading
@@ -308,7 +363,7 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <span>Trích Xuất Thông Tin</span>
+                    <span>{resultText ? 'Trích Xuất Lại' : 'Trích Xuất Thông Tin'}</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -325,7 +380,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={handleExtract}
+                onClick={() => handleExtract()}
                 disabled={isLoading || !imagePreview}
                 className="shrink-0 px-2.5 py-1 text-xs font-semibold bg-[#492727] hover:bg-[#5b3232] text-[#fecaca] rounded-md transition-colors cursor-pointer"
               >
@@ -335,44 +390,48 @@ export default function App() {
           )}
         </div>
 
-        {/* 1 Ô DUY NHẤT CHỨA 3 DÒNG THÔNG TIN + NÚT SAO CHÉP DƯỚI CÙNG */}
-        {resultText && (
-          <div className="bg-[#1b3124] rounded-2xl border border-[#2c4e3a] shadow-lg p-5 space-y-4 animate-fade-in">
-            {/* Ô duy nhất hiển thị 3 dòng */}
-            <div className="relative">
-              <textarea
-                value={resultText}
-                onChange={(e) => setResultText(e.target.value)}
-                rows={3}
-                className="w-full p-4 rounded-xl border border-[#335942] bg-[#132219] text-[#e8f5ee] text-base font-medium leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-[#5fa379] transition-all font-mono"
-                placeholder={`LE THI NGOC TRAM\n0326537738\nNHTMCP Quân Đội (MB)`}
-              />
-            </div>
-
-            {/* Nút Sao chép ở dưới cùng */}
-            <button
-              type="button"
-              onClick={handleCopy}
-              className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
-                isCopied
-                  ? 'bg-[#235839] text-[#b8f0d0] border border-[#3e855b]'
-                  : 'bg-[#316947] hover:bg-[#3b7d55] text-white active:scale-[0.99]'
+        {/* 1 Ô DUY NHẤT CHỨA 3 DÒNG THÔNG TIN + NÚT SAO CHÉP DƯỚI CÙNG (LUÔN HIỂN THỊ) */}
+        <div className="bg-[#1b3124] rounded-2xl border border-[#2c4e3a] shadow-lg p-5 space-y-4">
+          {/* Ô duy nhất hiển thị 3 dòng */}
+          <div className="relative">
+            <textarea
+              value={isLoading ? 'Đang trích xuất 3 thông tin từ bill...' : resultText}
+              onChange={(e) => setResultText(e.target.value)}
+              disabled={isLoading}
+              rows={3}
+              className={`w-full p-4 rounded-xl border border-[#335942] bg-[#132219] text-[#e8f5ee] text-base font-medium leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-[#5fa379] transition-all font-mono ${
+                isLoading ? 'opacity-70 animate-pulse text-[#8cb59a]' : ''
               }`}
-            >
-              {isCopied ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  <span>Đã sao chép!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>Sao chép</span>
-                </>
-              )}
-            </button>
+              placeholder={`LE THI NGOC TRAM\n0326537738\nNHTMCP Quân Đội (MB)`}
+            />
           </div>
-        )}
+
+          {/* Nút Sao chép ở dưới cùng */}
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={isLoading || !resultText}
+            className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
+              isCopied
+                ? 'bg-[#235839] text-[#b8f0d0] border border-[#3e855b]'
+                : isLoading || !resultText
+                ? 'bg-[#223d2e] text-[#698a76] cursor-not-allowed border border-[#2c4e3a]'
+                : 'bg-[#316947] hover:bg-[#3b7d55] text-white active:scale-[0.99]'
+            }`}
+          >
+            {isCopied ? (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Đã sao chép!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4" />
+                <span>Sao chép</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
