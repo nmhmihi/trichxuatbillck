@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi" translate="no" class="notranslate">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google" content="notranslate" />
     <title>Trích Xuất Bill Ngân Hàng</title>
     <meta name="description" content="Ứng dụng trích xuất tự động thông tin người nhận, số tài khoản nhận và ngân hàng nhận từ ảnh bill chuyển khoản ngân hàng bằng Google Gemini AI." />
     <meta property="og:title" content="Trích Xuất Bill Ngân Hàng" />
@@ -11,15 +12,44 @@
     <meta name="twitter:card" content="summary_large_image" />
     <script>
       (function() {
-        // 1. Ngăn chặn lỗi uncaught khi extension hoặc script ngoài cố gắng gán window.fetch
+        // 1. Bảo vệ DOM khỏi lỗi removeChild/insertBefore do Google Translate hoặc tiện ích mở rộng gây ra
+        if (typeof Node === 'function' && Node.prototype) {
+          var originalRemoveChild = Node.prototype.removeChild;
+          Node.prototype.removeChild = function(child) {
+            if (child && child.parentNode !== this) {
+              if (console && console.warn) {
+                console.warn('removeChild bỏ qua node không thuộc cha:', child, this);
+              }
+              return child;
+            }
+            return originalRemoveChild.apply(this, arguments);
+          };
+
+          var originalInsertBefore = Node.prototype.insertBefore;
+          Node.prototype.insertBefore = function(newNode, referenceNode) {
+            if (referenceNode && referenceNode.parentNode !== this) {
+              if (console && console.warn) {
+                console.warn('insertBefore bỏ qua referenceNode không thuộc cha:', referenceNode, this);
+              }
+              return newNode;
+            }
+            return originalInsertBefore.apply(this, arguments);
+          };
+        }
+
+        // 2. Ngăn chặn lỗi uncaught khi extension hoặc script ngoài cố gắng gán window.fetch
         window.addEventListener('error', function(event) {
-          if (event && event.message && event.message.includes('fetch of #<Window>')) {
+          if (event && event.message && (
+            event.message.includes('fetch of #<Window>') ||
+            event.message.includes('removeChild') ||
+            event.message.includes('insertBefore')
+          )) {
             if (event.preventDefault) event.preventDefault();
             return true;
           }
         }, true);
 
-        // 2. Cung cấp setter cho window.fetch để các tiện ích mở rộng có thể gán mà không bị lỗi read-only getter
+        // 3. Cung cấp setter cho window.fetch để các tiện ích mở rộng có thể gán mà không bị lỗi read-only getter
         try {
           var _nativeFetch = window.fetch ? window.fetch.bind(window) : undefined;
           Object.defineProperty(window, 'fetch', {

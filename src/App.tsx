@@ -20,6 +20,7 @@ export default function App() {
   const [isCopied, setIsCopied] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const resultTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Global paste handler (Ctrl+V / Cmd+V)
   useEffect(() => {
@@ -222,26 +223,23 @@ export default function App() {
 
   const handleCopy = async () => {
     if (!resultText) return;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(resultText);
-      } else {
-        throw new Error('Clipboard API not available');
-      }
-    } catch {
-      // Fallback cho môi trường iframe
+    let copied = false;
+    if (navigator.clipboard && window.isSecureContext) {
       try {
-        const textArea = document.createElement('textarea');
-        textArea.value = resultText;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
+        await navigator.clipboard.writeText(resultText);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+    if (!copied && resultTextareaRef.current) {
+      try {
+        resultTextareaRef.current.select();
+        resultTextareaRef.current.setSelectionRange(0, 99999);
         document.execCommand('copy');
-        document.body.removeChild(textArea);
+        copied = true;
       } catch (err) {
-        console.warn('Không thể sao chép tự động:', err);
+        console.warn('Lỗi khi sao chép:', err);
       }
     }
     setIsCopied(true);
@@ -357,15 +355,15 @@ export default function App() {
                 }`}
               >
                 {isLoading ? (
-                  <>
+                  <span className="flex items-center justify-center gap-2">
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    Đang trích xuất...
-                  </>
+                    <span>Đang trích xuất...</span>
+                  </span>
                 ) : (
-                  <>
+                  <span className="flex items-center justify-center gap-2">
                     <span>{resultText ? 'Trích Xuất Lại' : 'Trích Xuất Thông Tin'}</span>
                     <ArrowRight className="w-4 h-4" />
-                  </>
+                  </span>
                 )}
               </button>
             </div>
@@ -395,6 +393,7 @@ export default function App() {
           {/* Ô duy nhất hiển thị 3 dòng */}
           <div className="relative">
             <textarea
+              ref={resultTextareaRef}
               value={isLoading ? 'Đang trích xuất 3 thông tin từ bill...' : resultText}
               onChange={(e) => setResultText(e.target.value)}
               disabled={isLoading}
@@ -420,15 +419,15 @@ export default function App() {
             }`}
           >
             {isCopied ? (
-              <>
+              <span className="flex items-center justify-center gap-2">
                 <Check className="w-4 h-4" />
                 <span>Đã sao chép!</span>
-              </>
+              </span>
             ) : (
-              <>
+              <span className="flex items-center justify-center gap-2">
                 <Copy className="w-4 h-4" />
                 <span>Sao chép</span>
-              </>
+              </span>
             )}
           </button>
         </div>
