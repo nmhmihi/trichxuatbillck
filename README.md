@@ -44,9 +44,22 @@
 
 ---
 
-### 2. Triển khai lên môi trường Web bên ngoài
+### 2. Triển khai lên Vercel (Thông qua GitHub) - Đã cấu hình sẵn!
 
-Để ứng dụng hoạt động trên internet bên ngoài Google AI Studio, bạn có thể triển khai lên bất kỳ nền tảng nào hỗ trợ Node.js hoặc Docker:
+Dự án này đã được cấu hình sẵn **Vercel Serverless Functions** trong thư mục `/api` và tệp `vercel.json`:
+1. Đẩy mã nguồn lên kho lưu trữ **GitHub** của bạn.
+2. Truy cập [vercel.com](https://vercel.com), đăng nhập và bấm **Add New...** > **Project** > Chọn repository GitHub vừa tạo.
+3. Trong mục **Environment Variables** (Biến môi trường):
+   - **Name**: `GEMINI_API_KEY`
+   - **Value**: Dán khóa API Gemini của bạn (lấy tại `aistudio.google.com/apikey`).
+4. Bấm **Deploy**. Vercel sẽ tự động:
+   - Biên dịch giao diện Vite.
+   - Kích hoạt Serverless Functions tại `/api/extract-bill` và `/api/health`.
+   - Cung cấp tên miền `.vercel.app` hoạt động hoàn hảo 100%!
+
+---
+
+### 3. Triển khai lên các môi trường khác (Render, Railway, Cloud Run, VPS)
 
 - **Google Cloud Run** (Khuyên dùng - tương thích mặc định với AI Studio)
 - **Render.com / Railway.app / Fly.io / Heroku**:
