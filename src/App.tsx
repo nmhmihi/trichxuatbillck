@@ -49,16 +49,18 @@ export default function App() {
       img.onload = () => {
         const maxDim = 1280;
         let { width, height } = img;
-        if (width <= maxDim && height <= maxDim) {
+        if (width <= maxDim && height <= maxDim && !dataUrl.startsWith('data:image/png')) {
           resolve(dataUrl);
           return;
         }
-        if (width > height) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
         }
         const canvas = document.createElement('canvas');
         canvas.width = width;
@@ -68,10 +70,13 @@ export default function App() {
           resolve(dataUrl);
           return;
         }
+        // Tô nền trắng trước để tránh ảnh PNG trong suốt bị biến thành nền đen khi chuyển sang JPEG
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.88));
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
       };
       img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;

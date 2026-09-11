@@ -50,7 +50,7 @@ async function startServer() {
         });
       }
 
-      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, "");
+      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, "").trim();
 
       const ai = getGeminiClient();
 
@@ -89,9 +89,8 @@ Lưu ý:
         ],
       };
 
-      // Candidate models for ultra-fast OCR (prioritizing gemini-3.5-flash-lite for ~1s latency)
+      // Candidate models for OCR - prioritizing gemini-3.1-flash-lite for fast and accurate Vietnamese receipt OCR
       const candidateModels = [
-        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
         "gemini-3.8-flash",
       ];
@@ -102,7 +101,7 @@ Lưu ý:
       for (const model of candidateModels) {
         try {
           console.log(`[OCR] Đang xử lý bằng model: ${model}...`);
-          response = await ai.models.generateContent({
+          const candidateResponse = await ai.models.generateContent({
             model,
             contents: {
               parts: [
@@ -126,9 +125,28 @@ Lưu ý:
             },
           });
 
-          if (response && response.text) {
-            console.log(`[OCR] Trích xuất thành công với model ${model}`);
-            break; // Thành công
+          if (candidateResponse && candidateResponse.text) {
+            try {
+              const testData = JSON.parse(candidateResponse.text);
+              const name = String(testData.recipientName || "").trim().toLowerCase();
+              const acc = String(testData.recipientAccountNumber || "").trim().toLowerCase();
+              const bank = String(testData.recipientBank || "").trim().toLowerCase();
+
+              const hasValidField =
+                (name && name !== "null" && name !== "undefined") ||
+                (acc && acc !== "null" && acc !== "undefined") ||
+                (bank && bank !== "null" && bank !== "undefined");
+
+              if (hasValidField) {
+                console.log(`[OCR] Trích xuất thành công với model ${model}`);
+                response = candidateResponse;
+                break;
+              } else {
+                console.log(`[OCR] Model ${model} không tìm thấy nội dung hợp lệ, chuyển model tiếp theo...`);
+              }
+            } catch {
+              // JSON parse fail on candidate, try next
+            }
           }
         } catch (err: any) {
           lastModelError = err;
@@ -142,7 +160,6 @@ Lưu ý:
 
           if (isDemandSpike) {
             console.log(`[OCR] Model ${model} đang quá tải, chuyển ngay sang model tiếp theo...`);
-            // Tiếp tục vòng lặp sang model khác ngay lập tức
             continue;
           } else {
             console.log(`[OCR] Lỗi khi gọi ${model}:`, errString);
@@ -151,10 +168,11 @@ Lưu ý:
         }
       }
 
+      // If no model returned non-empty data, check if we got any candidate response
       if (!response) {
         throw (
           lastModelError ||
-          new Error("Không thể nhận diện ảnh sau khi đã thử các mô hình AI. Vui lòng thử lại.")
+          new Error("Không tìm thấy thông tin chuyển khoản trên ảnh hoặc ảnh quá mờ. Vui lòng kiểm tra lại ảnh bill.")
         );
       }
 
