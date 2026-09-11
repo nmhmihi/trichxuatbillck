@@ -1,0 +1,6 @@
+{
+  "name": "Trích Xuất Bill Ngân Hàng",
+  "description": "Ứng dụng trích xuất tự động thông tin người nhận, số tài khoản nhận và ngân hàng nhận từ ảnh bill chuyển khoản ngân hàng bằng Google Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

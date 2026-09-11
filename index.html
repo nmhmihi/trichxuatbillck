@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trích Xuất Bill Ngân Hàng</title>
+    <meta name="description" content="Ứng dụng trích xuất tự động thông tin người nhận, số tài khoản nhận và ngân hàng nhận từ ảnh bill chuyển khoản ngân hàng bằng Google Gemini AI." />
+    <meta property="og:title" content="Trích Xuất Bill Ngân Hàng" />
+    <meta property="og:description" content="Ứng dụng trích xuất tự động thông tin người nhận, số tài khoản nhận và ngân hàng nhận từ ảnh bill chuyển khoản ngân hàng bằng Google Gemini AI." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Defensive protection against extensions trying to set window.fetch when read-only
+      try {
+        let currentFetch = window.fetch.bind(window);
+        Object.defineProperty(window, 'fetch', {
+          get: function() { return currentFetch; },
+          set: function(fn) { currentFetch = fn; },
+          configurable: true,
+          enumerable: true
+        });
+      } catch (e) {
+        // Continue if sealed
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
