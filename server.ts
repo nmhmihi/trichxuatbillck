@@ -194,6 +194,24 @@ Lưu ý:
     }
   });
 
+  // Global error handler for API requests to ensure clean JSON responses
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[API Error Handler]", err);
+    if (res.headersSent) {
+      return next(err);
+    }
+    if (err.type === "entity.too.large") {
+      return res.status(413).json({
+        success: false,
+        error: "Dung lượng ảnh quá lớn. Vui lòng chọn ảnh có kích thước nhỏ hơn.",
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Lỗi xử lý yêu cầu. Vui lòng thử lại.",
+    });
+  });
+
   // Vite middleware in dev; static dist files in prod
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

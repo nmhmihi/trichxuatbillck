@@ -139,9 +139,25 @@ export default function App() {
         }),
       });
 
-      const json = await res.json();
+      const responseText = await res.text();
+      let json: any = null;
+
+      try {
+        json = JSON.parse(responseText);
+      } catch {
+        // Máy chủ hoặc proxy trả về trang HTML lỗi (như khi đang khởi động lại hoặc timeout)
+        if (
+          responseText.includes('The page') ||
+          responseText.includes('<!DOCTYPE') ||
+          res.status >= 500
+        ) {
+          throw new Error('Máy chủ đang khởi động lại hoặc gián đoạn kết nối tạm thời. Vui lòng nhấn "Thử lại".');
+        }
+        throw new Error('Phản hồi từ máy chủ không hợp lệ. Vui lòng thử lại.');
+      }
+
       if (!res.ok || !json.success) {
-        let msg = json.error || 'Có lỗi xảy ra khi xử lý ảnh.';
+        let msg = json?.error || 'Có lỗi xảy ra khi xử lý ảnh.';
         if (typeof msg === 'object') {
           msg = msg.message || JSON.stringify(msg);
         }
@@ -155,17 +171,23 @@ export default function App() {
       // Dòng 2: Số tài khoản nhận
       // Dòng 3: Ngân hàng nhận
       const lines = [
-        data.recipientName?.trim() || '',
-        data.recipientAccountNumber?.trim() || '',
-        data.recipientBank?.trim() || '',
+        data?.recipientName?.trim() || '',
+        data?.recipientAccountNumber?.trim() || '',
+        data?.recipientBank?.trim() || '',
       ].filter(Boolean);
 
       const formatted = lines.join('\n');
+      if (!formatted) {
+        setErrorMessage('Không tìm thấy thông tin chuyển khoản trên ảnh này. Vui lòng kiểm tra lại ảnh bill.');
+        return;
+      }
       setResultText(formatted);
     } catch (err: any) {
       let msg = err?.message || 'Không thể trích xuất ảnh. Vui lòng thử lại.';
-      if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE')) {
-        msg = 'Hệ thống AI đang tạm thời có lượng yêu cầu cao (503). Vui lòng nhấn Thử lại ngay.';
+      if (msg.includes('Unexpected token') || msg.includes('not valid JSON')) {
+        msg = 'Máy chủ vừa tải lại kết nối. Vui lòng nhấn "Thử lại".';
+      } else if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE')) {
+        msg = 'Hệ thống AI đang có lượng yêu cầu cao tạm thời. Vui lòng nhấn Thử lại.';
       }
       setErrorMessage(msg);
     } finally {
