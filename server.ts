@@ -96,6 +96,7 @@ Lưu ý:
       ];
 
       let response = null;
+      let fallbackParsedResponse: any = null;
       let lastModelError: any = null;
 
       for (const model of candidateModels) {
@@ -128,21 +129,24 @@ Lưu ý:
           if (candidateResponse && candidateResponse.text) {
             try {
               const testData = JSON.parse(candidateResponse.text);
-              const name = String(testData.recipientName || "").trim().toLowerCase();
-              const acc = String(testData.recipientAccountNumber || "").trim().toLowerCase();
-              const bank = String(testData.recipientBank || "").trim().toLowerCase();
+              const name = String(testData.recipientName || "").trim();
+              const acc = String(testData.recipientAccountNumber || "").trim();
+              const bank = String(testData.recipientBank || "").trim();
 
               const hasValidField =
-                (name && name !== "null" && name !== "undefined") ||
-                (acc && acc !== "null" && acc !== "undefined") ||
-                (bank && bank !== "null" && bank !== "undefined");
+                (name && name.toLowerCase() !== "null" && name.toLowerCase() !== "undefined") ||
+                (acc && acc.toLowerCase() !== "null" && acc.toLowerCase() !== "undefined") ||
+                (bank && bank.toLowerCase() !== "null" && bank.toLowerCase() !== "undefined");
 
               if (hasValidField) {
                 console.log(`[OCR] Trích xuất thành công với model ${model}`);
                 response = candidateResponse;
                 break;
               } else {
-                console.log(`[OCR] Model ${model} không tìm thấy nội dung hợp lệ, chuyển model tiếp theo...`);
+                console.log(`[OCR] Model ${model} không tìm thấy nội dung hợp lệ`);
+                if (!fallbackParsedResponse) {
+                  fallbackParsedResponse = testData;
+                }
               }
             } catch {
               // JSON parse fail on candidate, try next
@@ -159,7 +163,7 @@ Lưu ý:
             errString.includes("RESOURCE_EXHAUSTED");
 
           if (isDemandSpike) {
-            console.log(`[OCR] Model ${model} đang quá tải, chuyển ngay sang model tiếp theo...`);
+            console.log(`[OCR] Model ${model} đang bận, chuyển sang model dự phòng...`);
             continue;
           } else {
             console.log(`[OCR] Lỗi khi gọi ${model}:`, errString);
@@ -168,8 +172,29 @@ Lưu ý:
         }
       }
 
-      // If no model returned non-empty data, check if we got any candidate response
+      const sanitizeData = (obj: any) => {
+        const clean = (val: any) => {
+          if (!val) return "";
+          const s = String(val).trim();
+          const lower = s.toLowerCase();
+          if (lower === "null" || lower === "undefined" || lower === "none" || lower === "n/a") return "";
+          return s;
+        };
+        return {
+          recipientName: clean(obj?.recipientName),
+          recipientAccountNumber: clean(obj?.recipientAccountNumber),
+          recipientBank: clean(obj?.recipientBank),
+        };
+      };
+
+      // If no model returned fields, check fallback parsed response from completed AI call
       if (!response) {
+        if (fallbackParsedResponse) {
+          return res.json({
+            success: true,
+            data: sanitizeData(fallbackParsedResponse),
+          });
+        }
         throw (
           lastModelError ||
           new Error("Không tìm thấy thông tin chuyển khoản trên ảnh hoặc ảnh quá mờ. Vui lòng kiểm tra lại ảnh bill.")
@@ -189,7 +214,7 @@ Lưu ý:
 
       return res.json({
         success: true,
-        data: parsedData,
+        data: sanitizeData(parsedData),
       });
     } catch (err: any) {
       console.error("Lỗi khi trích xuất bill:", err);

@@ -157,6 +157,11 @@ export default function App() {
           try {
             json = JSON.parse(responseText);
           } catch {
+            if (res.status === 404) {
+              throw new Error(
+                'Không tìm thấy máy chủ backend (/api/extract-bill). Ứng dụng này là full-stack (gồm cả backend Node.js để bảo mật API Key). Nếu bạn đang xuất/deploy ra dịch vụ chỉ chạy web tĩnh (như GitHub Pages, Vercel SPA), bạn cần chạy cả backend Node.js (npm start) hoặc deploy lên Cloud Run / Docker.'
+              );
+            }
             // Nếu phản hồi HTML khi máy chủ đang khởi động lại, tự động thử lại sau 1.5s
             if (retriesLeft > 0) {
               await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -166,6 +171,11 @@ export default function App() {
           }
 
           if (!res.ok || !json.success) {
+            if (res.status === 404) {
+              throw new Error(
+                'Không tìm thấy máy chủ backend (/api/extract-bill). Cần khởi động cả server Node.js (npm start).'
+              );
+            }
             // Nếu lỗi 503 hoặc quá tải tạm thời, tự động thử lại sau 1.5s
             if ((res.status === 503 || res.status === 502 || res.status === 504) && retriesLeft > 0) {
               await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -196,10 +206,20 @@ export default function App() {
       // Dòng 1: Tên người nhận
       // Dòng 2: Số tài khoản nhận
       // Dòng 3: Ngân hàng nhận
+      const cleanField = (val: any) => {
+        if (!val) return '';
+        const s = String(val).trim();
+        const lower = s.toLowerCase();
+        if (lower === 'null' || lower === 'undefined' || lower === 'none' || lower === 'n/a') {
+          return '';
+        }
+        return s;
+      };
+
       const lines = [
-        String(data?.recipientName || '').trim(),
-        String(data?.recipientAccountNumber || '').trim(),
-        String(data?.recipientBank || '').trim(),
+        cleanField(data?.recipientName),
+        cleanField(data?.recipientAccountNumber),
+        cleanField(data?.recipientBank),
       ].filter(Boolean);
 
       const formatted = lines.join('\n');
